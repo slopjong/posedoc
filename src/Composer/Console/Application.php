@@ -231,6 +231,7 @@ class Application extends BaseApplication
     protected function getDefaultCommands()
     {
         $commands = parent::getDefaultCommands();
+        $commands[] = new Command\DockerBuildCommand();
         $commands[] = new Command\AboutCommand();
         $commands[] = new Command\ConfigCommand();
         $commands[] = new Command\DependsCommand();
