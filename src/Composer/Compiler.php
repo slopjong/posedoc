@@ -79,6 +79,7 @@ class Compiler
         $finder = new Finder();
         $finder->files()
             ->name('*.json')
+            ->name('*.template')
             ->in(__DIR__ . '/../../res')
         ;
 

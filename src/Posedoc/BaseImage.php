@@ -221,7 +221,8 @@ class BaseImage implements BaseImageInterface, DockerFileInterface, WebProjectIn
 
     protected function _order($method)
     {
-        $key = array_pop(explode('::', $method));
+        $arr = explode('::', $method);
+        $key = array_pop($arr);
         $this->directives_order[] = array(
             'key'      => $key,
             'position' => count($this->$key) - 1
