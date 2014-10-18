@@ -2,6 +2,8 @@
 
 namespace Composer\Command;
 
+// IMPORTANT: the code below needs to be refactored, it wasn't developed with testing in mind
+//            the constants are evil
 
 use Composer\Config;
 use Composer\Config\JsonConfigSource;
@@ -88,7 +90,12 @@ EOT
             fclose($handle);
         }
 
+        $this->buildFiles = $this->loadBuildFiles();
+        $this->buildFiles = $this->sortDependencies($this->buildFiles);
+
+        $this->checkoutProjects();
         $this->buildAll();
+        $this->cleanup();
     }
 
     protected function initOAuth()
@@ -125,12 +132,6 @@ EOT
         $github->authorizeOAuthInteractively('github.com');
     }
 
-    public function add($imageName, $buildFile)
-    {
-        echo $imageName .' loaded'. PHP_EOL;
-        $this->buildFiles[$imageName] = include $buildFile;
-    }
-
     /**
      * Copies files/directories to the 'compile' directory
      */
@@ -148,8 +149,8 @@ EOT
         $projects = array();
 
         /** @var WebProjectInterface $build */
-        foreach ($this->buildFiles as $imageName => $build) {
-            $projects = array_merge($projects, $build->getProjects());
+        foreach ($this->getBuildFiles() as $imageName => $build) {
+            $projects = array_merge($projects, $build['build']->getProjects());
         }
 
         $projects = array_unique($projects);
@@ -173,19 +174,32 @@ EOT
         }
     }
 
-    public function buildAll()
+    /**
+     * Convenient getter to make this class testable by mocking up certain things.
+     */
+    protected function getBuildFiles()
     {
-        $this->loadBuildFiles();
+        return $this->buildFiles;
+    }
 
-        $this->checkoutProjects();
+    /**
+     * Use this in unit tests only. Mocking up this command failed somehow.
+     *
+     * @param $buildFiles
+     */
+    protected function setBuildFiles(array $buildFiles)
+    {
+        $this->buildFiles = $buildFiles;
+    }
 
-        /** @var DockerFileInterface $build */
-        foreach ($this->buildFiles as $imageName => $build) {
+    protected function buildAll()
+    {
+        foreach ($this->getBuildFiles() as $imageName => $build) {
 
-            if (in_array($imageName, $this->posignore)) {
-                $this->outputHeader('SKIPPING '. $imageName);
-                continue;
-            }
+            $dependency = $build['dependency'];
+
+            /** @var BaseImage $build */
+            $build = $build['build'];
 
             $this->outputHeader('BUILDING '. $imageName);
             $this->copyAddAssets($build, $imageName);
@@ -202,18 +216,20 @@ EOT
 
             chdir(ROOT_DIR);
         }
-
-        $this->cleanup();
     }
 
     protected function loadBuildFiles()
     {
+        $this->outputHeader('LOADING BUILD FILES');
+
         $objects = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator(IMAGES_DIR),
             \RecursiveIteratorIterator::SELF_FIRST
         );
 
+        $buildFiles = array();
         foreach($objects as $fileName => $object){
+
             if  (basename($fileName) === 'build.php') {
                 $imageName = str_replace(
                     array(IMAGES_DIR .'/', '/build.php'),
@@ -221,11 +237,36 @@ EOT
                     $fileName
                 );
 
-                if (! in_array($imageName, $this->posignore)) {
-                    $this->add($imageName, $fileName);
+                if (in_array($imageName, $this->posignore)) {
+                    echo 'Skipping '. $imageName . PHP_EOL;
+                    continue;
                 }
+
+                echo 'Loading '. $imageName . PHP_EOL;
+
+                /** @var BaseImage $build */
+                $build = include $fileName;
+                $buildFiles[$imageName] = array(
+                    'build'       => $build,
+                    'dependency'  => $build->getFrom(),
+                );
             }
         }
+
+        return $buildFiles;
+    }
+
+    protected function sortDependencies($buildFiles)
+    {
+        uksort($buildFiles, function ($imageKey1, $imageKey2) use ($buildFiles) {
+            if ($imageKey1 === $buildFiles[$imageKey2]->getFrom()) {
+                return true;
+            }
+
+            return false;
+        });
+
+        return $buildFiles;
     }
 
     protected function cleanup()
