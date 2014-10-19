@@ -12,7 +12,9 @@ use Composer\Json\JsonFile;
 use Composer\Util\Filesystem;
 use Composer\Util\GitHub;
 use Posedoc\DockerFileInterface;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Posedoc\BaseImage;
 
@@ -196,8 +198,6 @@ EOT
     {
         foreach ($this->getBuildFiles() as $imageName => $build) {
 
-            $dependency = $build['dependency'];
-
             /** @var BaseImage $build */
             $build = $build['build'];
 
@@ -259,7 +259,7 @@ EOT
     protected function sortDependencies($buildFiles)
     {
         uksort($buildFiles, function ($imageKey1, $imageKey2) use ($buildFiles) {
-            if ($imageKey1 === $buildFiles[$imageKey2]->getFrom()) {
+            if ($imageKey1 === $buildFiles[$imageKey2]['build']->getFrom()) {
                 return true;
             }
 
