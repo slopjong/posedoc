@@ -105,6 +105,7 @@ class Installer
     protected $verbose = false;
     protected $update = false;
     protected $runScripts = true;
+    protected $ignorePlatformReqs = false;
     /**
      * Array of package names/globs flagged for update
      *
@@ -263,7 +264,7 @@ class Installer
 
                     $this->eventDispatcher->dispatchInstallerEvent(InstallerEvents::PRE_DEPENDENCIES_SOLVING, $policy, $pool, $installedRepo, $request);
                     $solver = new Solver($policy, $pool, $installedRepo);
-                    $ops = $solver->solve($request);
+                    $ops = $solver->solve($request, $this->ignorePlatformReqs);
                     $this->eventDispatcher->dispatchInstallerEvent(InstallerEvents::POST_DEPENDENCIES_SOLVING, $policy, $pool, $installedRepo, $request, $ops);
                     foreach ($ops as $op) {
                         if ($op->getJobType() === 'uninstall') {
@@ -379,7 +380,7 @@ class Installer
         }
 
         if ($this->update) {
-            $this->io->write('<info>Updating dependencies'.($withDevReqs?' (including require-dev)':'').'</info>');
+            $this->io->write('<info>Updating dependencies'.($withDevReqs ? ' (including require-dev)' : '').'</info>');
 
             $request->updateAll();
 
@@ -430,7 +431,7 @@ class Installer
                 }
             }
         } elseif ($installFromLock) {
-            $this->io->write('<info>Installing dependencies'.($withDevReqs?' (including require-dev)':'').' from lock file</info>');
+            $this->io->write('<info>Installing dependencies'.($withDevReqs ? ' (including require-dev)' : '').' from lock file</info>');
 
             if (!$this->locker->isFresh()) {
                 $this->io->write('<warning>Warning: The lock file is not up to date with the latest changes in composer.json. You may be getting outdated dependencies. Run update to update them.</warning>');
@@ -450,7 +451,7 @@ class Installer
                 $request->install($link->getTarget(), $link->getConstraint());
             }
         } else {
-            $this->io->write('<info>Installing dependencies'.($withDevReqs?' (including require-dev)':'').'</info>');
+            $this->io->write('<info>Installing dependencies'.($withDevReqs ? ' (including require-dev)' : '').'</info>');
 
             if ($withDevReqs) {
                 $links = array_merge($this->package->getRequires(), $this->package->getDevRequires());
@@ -470,7 +471,7 @@ class Installer
         $this->eventDispatcher->dispatchInstallerEvent(InstallerEvents::PRE_DEPENDENCIES_SOLVING, $policy, $pool, $installedRepo, $request);
         $solver = new Solver($policy, $pool, $installedRepo);
         try {
-            $operations = $solver->solve($request);
+            $operations = $solver->solve($request, $this->ignorePlatformReqs);
             $this->eventDispatcher->dispatchInstallerEvent(InstallerEvents::POST_DEPENDENCIES_SOLVING, $policy, $pool, $installedRepo, $request, $operations);
         } catch (SolverProblemsException $e) {
             $this->io->write('<error>Your requirements could not be resolved to an installable set of packages.</error>');
@@ -657,6 +658,10 @@ class Installer
         }
         $rootConstraints = array();
         foreach ($requires as $req => $constraint) {
+            // skip platform requirements from the root package to avoid filtering out existing platform packages
+            if ($this->ignorePlatformReqs && preg_match(PlatformRepository::PLATFORM_PACKAGE_REGEX, $req)) {
+                continue;
+            }
             $rootConstraints[$req] = $constraint->getConstraint();
         }
 
@@ -704,7 +709,7 @@ class Installer
                 || !isset($provided[$package->getName()])
                 || !$provided[$package->getName()]->getConstraint()->matches($constraint)
             ) {
-                $request->install($package->getName(), $constraint);
+                $request->fix($package->getName(), $constraint);
             }
         }
 
@@ -1053,6 +1058,16 @@ class Installer
     }
 
     /**
+     * Checks, if this is a dry run (simulation mode).
+     *
+     * @return bool
+     */
+    public function isDryRun()
+    {
+        return $this->dryRun;
+    }
+
+    /**
      * prefer source installation
      *
      * @param  boolean   $preferSource
@@ -1152,6 +1167,29 @@ class Installer
     public function setVerbose($verbose = true)
     {
         $this->verbose = (boolean) $verbose;
+
+        return $this;
+    }
+
+    /**
+     * Checks, if running in verbose mode.
+     *
+     * @return bool
+     */
+    public function isVerbose()
+    {
+        return $this->verbose;
+    }
+
+    /**
+     * set ignore Platform Package requirements
+     *
+     * @param  boolean   $ignorePlatformReqs
+     * @return Installer
+     */
+    public function setIgnorePlatformRequirements($ignorePlatformReqs = false)
+    {
+        $this->ignorePlatformReqs = (boolean) $ignorePlatformReqs;
 
         return $this;
     }

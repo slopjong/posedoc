@@ -160,7 +160,7 @@ EOT
             }
 
             $file = $input->getOption('auth') ? $this->authConfigFile->getPath() : $this->configFile->getPath();
-            system($editor . ' ' . $file . (defined('PHP_WINDOWS_VERSION_BUILD') ? '':  ' > `tty`'));
+            system($editor . ' ' . $file . (defined('PHP_WINDOWS_VERSION_BUILD') ? '' : ' > `tty`'));
 
             return 0;
         }
@@ -323,6 +323,7 @@ EOT
             'autoloader-suffix' => array('is_string', function ($val) { return $val === 'null' ? null : $val; }),
             'optimize-autoloader' => array($booleanValidator, $booleanNormalizer),
             'prepend-autoloader' => array($booleanValidator, $booleanNormalizer),
+            'github-expose-hostname' => array($booleanValidator, $booleanNormalizer),
         );
         $multiConfigValues = array(
             'github-protocols' => array(
@@ -358,7 +359,7 @@ EOT
         );
 
         foreach ($uniqueConfigValues as $name => $callbacks) {
-             if ($settingKey === $name) {
+            if ($settingKey === $name) {
                 if ($input->getOption('unset')) {
                     return $this->configSource->removeConfigSetting($settingKey);
                 }

@@ -152,7 +152,7 @@ class InstallerTest extends TestCase
         $io->expects($this->any())
             ->method('write')
             ->will($this->returnCallback(function ($text, $newline) use (&$output) {
-                $output .= $text . ($newline ? "\n":"");
+                $output .= $text . ($newline ? "\n" : "");
             }));
 
         $composer = FactoryMock::create($io, $composerConfig);
@@ -204,7 +204,8 @@ class InstallerTest extends TestCase
         $application->get('install')->setCode(function ($input, $output) use ($installer) {
             $installer
                 ->setDevMode(!$input->getOption('no-dev'))
-                ->setDryRun($input->getOption('dry-run'));
+                ->setDryRun($input->getOption('dry-run'))
+                ->setIgnorePlatformRequirements($input->getOption('ignore-platform-reqs'));
 
             return $installer->run();
         });
@@ -215,7 +216,8 @@ class InstallerTest extends TestCase
                 ->setUpdate(true)
                 ->setDryRun($input->getOption('dry-run'))
                 ->setUpdateWhitelist($input->getArgument('packages'))
-                ->setWhitelistDependencies($input->getOption('with-dependencies'));
+                ->setWhitelistDependencies($input->getOption('with-dependencies'))
+                ->setIgnorePlatformRequirements($input->getOption('ignore-platform-reqs'));
 
             return $installer->run();
         });

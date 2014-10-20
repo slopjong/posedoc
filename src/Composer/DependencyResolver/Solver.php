@@ -13,6 +13,7 @@
 namespace Composer\DependencyResolver;
 
 use Composer\Repository\RepositoryInterface;
+use Composer\Repository\PlatformRepository;
 
 /**
  * @author Nils Adermann <naderman@naderman.de>
@@ -82,7 +83,6 @@ class Solver
             $conflict = $this->decisions->decisionRule($literal);
 
             if ($conflict && RuleSet::TYPE_PACKAGE === $conflict->getType()) {
-
                 $problem = new Problem($this->pool);
 
                 $problem->addRule($rule);
@@ -129,7 +129,7 @@ class Solver
         }
     }
 
-    protected function checkForRootRequireProblems()
+    protected function checkForRootRequireProblems($ignorePlatformReqs)
     {
         foreach ($this->jobs as $job) {
             switch ($job['cmd']) {
@@ -149,6 +149,10 @@ class Solver
                     break;
 
                 case 'install':
+                    if ($ignorePlatformReqs && preg_match(PlatformRepository::PLATFORM_PACKAGE_REGEX, $job['packageName'])) {
+                        break;
+                    }
+
                     if (!$this->pool->whatProvides($job['packageName'], $job['constraint'])) {
                         $problem = new Problem($this->pool);
                         $problem->addRule(new Rule($this->pool, array(), null, null, $job));
@@ -159,13 +163,13 @@ class Solver
         }
     }
 
-    public function solve(Request $request)
+    public function solve(Request $request, $ignorePlatformReqs = false)
     {
         $this->jobs = $request->getJobs();
 
         $this->setupInstalledMap();
-        $this->rules = $this->ruleSetGenerator->getRulesFor($this->jobs, $this->installedMap);
-        $this->checkForRootRequireProblems();
+        $this->rules = $this->ruleSetGenerator->getRulesFor($this->jobs, $this->installedMap, $ignorePlatformReqs);
+        $this->checkForRootRequireProblems($ignorePlatformReqs);
         $this->decisions = new Decisions($this->pool);
         $this->watchGraph = new RuleWatchGraph;
 
@@ -604,7 +608,6 @@ class Solver
         $installedPos = 0;
 
         while (true) {
-
             if (1 === $level) {
                 $conflictRule = $this->propagate($level);
                 if (null !== $conflictRule) {
@@ -653,7 +656,6 @@ class Solver
                         }
 
                         if ($noneSatisfied && count($decisionQueue)) {
-
                             $oLevel = $level;
                             $level = $this->selectAndInstall($level, $decisionQueue, $disableRules, $rule);
 
@@ -737,7 +739,6 @@ class Solver
 
             // minimization step
             if (count($this->branches)) {
-
                 $lastLiteral = null;
                 $lastLevel = null;
                 $lastBranchIndex = 0;
