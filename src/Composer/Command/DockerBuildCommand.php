@@ -47,6 +47,21 @@ class DockerBuildCommand extends Command
         $this
             ->setName('docker-build')
             ->setDescription('Build docker containers.')
+            ->setDefinition(array(
+                new InputArgument(
+                    'image',
+                    InputArgument::OPTIONAL,
+                    'Docker image to build',
+                    'all'
+                ),
+                new InputOption(
+                    'dry-run',
+                    '',
+                    InputOption::VALUE_REQUIRED | InputOption::VALUE_REQUIRED,
+                    'Process the images list but don\'t build them',
+                    false
+                ),
+            ))
             ->setHelp(<<<EOT
 Build the docker containers from the given docker description files.
 EOT
@@ -56,6 +71,9 @@ EOT
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $buildImage = $input->getArgument('image');
+        $dryRun = $input->getOption('dry-run');
+
         if (! file_exists(IMAGES_DIR)) {
             echo 'Run this tool from your proejct root' . PHP_EOL;
             exit();
@@ -95,8 +113,8 @@ EOT
         $this->buildFiles = $this->loadBuildFiles();
         $this->buildFiles = $this->sortDependencies($this->buildFiles);
 
-        $this->checkoutProjects();
-        $this->buildAll();
+        $this->checkoutProjects($dryRun);
+        $this->build($buildImage, $dryRun);
         $this->cleanup();
     }
 
@@ -146,7 +164,7 @@ EOT
         }
     }
 
-    protected function checkoutProjects()
+    protected function checkoutProjects($dryRun = false)
     {
         $projects = array();
 
@@ -163,6 +181,13 @@ EOT
 
             $repoName = explode('/', $project);
             $projectName = str_replace('.git', '', array_pop($repoName));
+
+            if ($dryRun) {
+                echo "Cloning project (dry mode) ..." . PHP_EOL;
+                $command = 'git ls-remote '. $project;
+                system($command);
+                continue;
+            }
 
             if (file_exists(PROJECT_DIR .'/'. $projectName)) {
                 echo "Updating project ..." . PHP_EOL;
@@ -194,14 +219,25 @@ EOT
         $this->buildFiles = $buildFiles;
     }
 
-    protected function buildAll()
+    protected function build($image, $dryRun = false)
     {
+        if ($image !== 'all') {
+            echo "The tool doesn't support building a single image yet.";
+            return;
+        }
+
         foreach ($this->getBuildFiles() as $imageName => $build) {
 
             /** @var BaseImage $build */
             $build = $build['build'];
 
-            $this->outputHeader('BUILDING '. $imageName);
+            if ($dryRun) {
+                $this->outputHeader('BUILDING '. $imageName .' (dry mode)');
+                continue;
+            } else {
+                $this->outputHeader('BUILDING '. $imageName);
+            }
+
             $this->copyAddAssets($build, $imageName);
 
             file_put_contents(DOCKER_FILE, $build->toDockerFile());
@@ -272,7 +308,9 @@ EOT
     protected function cleanup()
     {
         echo "Cleaning up ..." . PHP_EOL;
-        unlink(DOCKER_FILE);
+        if (file_exists(DOCKER_FILE)) {
+            unlink(DOCKER_FILE);
+        }
         system('rm -rf '. ASSETS_DIR .'/*');
     }
 
