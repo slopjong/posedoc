@@ -166,6 +166,12 @@ EOT
 
     protected function checkoutProjects($dryRun = false)
     {
+        if ($dryRun) {
+            $this->outputHeader('PROCESSING PROJECTS (dry mode)');
+        } else {
+            $this->outputHeader('PROCESSING PROJECTS repositories');
+        }
+
         $projects = array();
 
         /** @var WebProjectInterface $build */
@@ -183,18 +189,18 @@ EOT
             $projectName = str_replace('.git', '', array_pop($repoName));
 
             if ($dryRun) {
-                echo "Cloning project (dry mode) ..." . PHP_EOL;
+                echo "Cloning/updating project $projectName ..." . PHP_EOL;
                 $command = 'git ls-remote '. $project;
                 system($command);
                 continue;
             }
 
             if (file_exists(PROJECT_DIR .'/'. $projectName)) {
-                echo "Updating project ..." . PHP_EOL;
+                echo "Updating project $projectName ..." . PHP_EOL;
                 // @todo submodules may also have been updated
                 system('cd '. PROJECT_DIR .'/'. $projectName .' && git pull && cd -');
             } else {
-                echo "Cloning project ..." . PHP_EOL;
+                echo "Cloning project $projectName ..." . PHP_EOL;
                 $command = 'git clone --recursive '. $project .' '. PROJECT_DIR .'/'. $projectName;
                 system($command);
             }
