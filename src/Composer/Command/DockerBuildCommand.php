@@ -2,8 +2,6 @@
 
 namespace Composer\Command;
 
-// IMPORTANT: the code below needs to be refactored, it wasn't developed with testing in mind
-//            the constants are evil
 
 use Composer\Config;
 use Composer\Config\JsonConfigSource;
@@ -18,19 +16,6 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Posedoc\BaseImage;
 
-// before migrating to composer the posedoc tool defined global
-// constants so we do this here and not in the constructor to get
-// the code completion work
-define('ROOT_DIR',      realpath(".")); // in a phar __DIR__ starts with phar://
-define('IMAGES_DIR',    ROOT_DIR . '/images');
-define('BUILD_DIR',     ROOT_DIR . '/.tmp');
-define('AUTH_FILE',     BUILD_DIR . '/auth.json');
-define('PROJECT_DIR',   BUILD_DIR . '/project');
-define('ASSETS_DIR',    BUILD_DIR . '/assets');
-define('CACHE_DIR',     BUILD_DIR . '/cache');
-define('DOCKER_FILE',   BUILD_DIR . '/Dockerfile');
-define('POSIGNORE',     ROOT_DIR . '/.posignore');
-
 /**
  * Class DockerBuildCommand
  * @package Composer\Command
@@ -41,9 +26,27 @@ class DockerBuildCommand extends Command
 {
     protected $buildFiles = array();
     protected $posignore = array();
+    protected $config = array();
 
     protected function configure()
     {
+        $config = array(
+            'ROOT_DIR'    => realpath("."), // in a phar __DIR__ starts with phar://
+            'BUILD_DIR'   => realpath(".") . '/.tmp',
+        );
+
+        $config = array_merge($config, array(
+            'IMAGES_DIR'  => $config['ROOT_DIR']  . '/images',
+            'AUTH_FILE'   => $config['BUILD_DIR'] . '/auth.json',
+            'PROJECT_DIR' => $config['BUILD_DIR'] . '/project',
+            'ASSETS_DIR'  => $config['BUILD_DIR'] . '/assets',
+            'CACHE_DIR'   => $config['BUILD_DIR'] . '/cache',
+            'DOCKER_FILE' => $config['BUILD_DIR'] . '/Dockerfile',
+            'POSIGNORE'   => $config['ROOT_DIR']  . '/.posignore',
+        ));
+
+        $this->setConfig($config);
+
         $this
             ->setName('docker-build')
             ->setDescription('Build docker containers.')
@@ -69,34 +72,44 @@ EOT
         ;
     }
 
+    protected function setConfig(array $config)
+    {
+        $this->config = $config;
+    }
+
+    protected  function getConfig()
+    {
+        return $this->config;
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $buildImage = $input->getArgument('image');
         $dryRun = $input->getOption('dry-run');
 
-        if (! file_exists(IMAGES_DIR)) {
+        if (! file_exists($this->config['IMAGES_DIR'])) {
             echo 'Run this tool from your proejct root' . PHP_EOL;
             exit();
         }
 
-        if (! file_exists(CACHE_DIR)) {
-            mkdir(CACHE_DIR, 0755, true);
+        if (! file_exists($this->config['CACHE_DIR'])) {
+            mkdir($this->config['CACHE_DIR'], 0755, true);
         }
 
-        if (! file_exists(ASSETS_DIR)) {
-            mkdir(ASSETS_DIR, 0755, true);
+        if (! file_exists($this->config['ASSETS_DIR'])) {
+            mkdir($this->config['ASSETS_DIR'], 0755, true);
         }
 
-        if (! file_exists(PROJECT_DIR)) {
-            mkdir(PROJECT_DIR, 0755, true);
+        if (! file_exists($this->config['PROJECT_DIR'])) {
+            mkdir($this->config['PROJECT_DIR'], 0755, true);
         }
 
         // Read the .posignore file to skip specific images.
-        if (! file_exists(POSIGNORE)) {
+        if (! file_exists($this->config['POSIGNORE'])) {
             return;
         }
 
-        $handle = @fopen(POSIGNORE, "r");
+        $handle = @fopen($this->config['POSIGNORE'], "r");
         if ($handle) {
             while (($line = fgets($handle)) !== false) {
                 $line = trim($line);
@@ -111,7 +124,7 @@ EOT
         }
 
         $this->buildFiles = $this->loadBuildFiles();
-        $this->buildFiles = $this->sortDependencies($this->buildFiles);
+        $this->buildFiles = $this->sortBuildFiles($this->buildFiles);
 
         $this->checkoutProjects($dryRun);
         $this->build($buildImage, $dryRun);
@@ -136,11 +149,7 @@ EOT
             $composer->setConfig(new Config());
         }
 
-        if (defined('AUTH_FILE')) {
-            $authFile = new JsonFile(AUTH_FILE);
-        } else {
-            $authFile = new JsonFile(__DIR__ . '/auth.json');
-        }
+        $authFile = new JsonFile($this->config['AUTH_FILE']);
 
         $jsonConfigSource = new JsonConfigSource($authFile);
         $composer->getConfig()->setAuthConfigSource($jsonConfigSource);
@@ -160,7 +169,7 @@ EOT
         echo 'Copy assets ...'. PHP_EOL;
         $assets = $image->getAssets();
         foreach ($assets as $asset) {
-            system('cp -r '. IMAGES_DIR .'/'. $imageName .'/'. $asset .' '. ASSETS_DIR);
+            system('cp -r '. $this->config['IMAGES_DIR'] .'/'. $imageName .'/'. $asset .' '. $this->config['ASSETS_DIR']);
         }
     }
 
@@ -176,7 +185,7 @@ EOT
 
         /** @var WebProjectInterface $build */
         foreach ($this->getBuildFiles() as $imageName => $build) {
-            $projects = array_merge($projects, $build['build']->getProjects());
+            $projects = array_merge($projects, $build->getProjects());
         }
 
         $projects = array_unique($projects);
@@ -195,13 +204,13 @@ EOT
                 continue;
             }
 
-            if (file_exists(PROJECT_DIR .'/'. $projectName)) {
+            if (file_exists($this->config['PROJECT_DIR'] .'/'. $projectName)) {
                 echo "Updating project $projectName ..." . PHP_EOL;
                 // @todo submodules may also have been updated
-                system('cd '. PROJECT_DIR .'/'. $projectName .' && git pull && cd -');
+                system('cd '. $this->config['PROJECT_DIR'] .'/'. $projectName .' && git pull && cd -');
             } else {
                 echo "Cloning project $projectName ..." . PHP_EOL;
-                $command = 'git clone --recursive '. $project .' '. PROJECT_DIR .'/'. $projectName;
+                $command = 'git clone --recursive '. $project .' '. $this->config['PROJECT_DIR'] .'/'. $projectName;
                 system($command);
             }
         }
@@ -235,7 +244,7 @@ EOT
         foreach ($this->getBuildFiles() as $imageName => $build) {
 
             /** @var BaseImage $build */
-            $build = $build['build'];
+            $build = $build;
 
             if ($dryRun) {
                 $this->outputHeader('BUILDING '. $imageName .' (dry mode)');
@@ -246,7 +255,7 @@ EOT
 
             $this->copyAddAssets($build, $imageName);
 
-            file_put_contents(DOCKER_FILE, $build->toDockerFile());
+            file_put_contents($this->config['DOCKER_FILE'], $build->toDockerFile());
 
             chdir(BUILD_DIR);
 
@@ -256,7 +265,7 @@ EOT
             system("docker save -o $tarFileName.tar $imageName");
             system("mv $tarFileName.tar ../builds");
 
-            chdir(ROOT_DIR);
+            chdir($this->config['ROOT_DIR']);
         }
     }
 
@@ -265,7 +274,7 @@ EOT
         $this->outputHeader('LOADING BUILD FILES');
 
         $objects = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator(IMAGES_DIR),
+            new \RecursiveDirectoryIterator($this->config['IMAGES_DIR']),
             \RecursiveIteratorIterator::SELF_FIRST
         );
 
@@ -274,7 +283,7 @@ EOT
 
             if  (basename($fileName) === 'build.php') {
                 $imageName = str_replace(
-                    array(IMAGES_DIR .'/', '/build.php'),
+                    array($this->config['IMAGES_DIR'] .'/', '/build.php'),
                     array('', ''),
                     $fileName
                 );
@@ -288,36 +297,116 @@ EOT
 
                 /** @var BaseImage $build */
                 $build = include $fileName;
-                $buildFiles[$imageName] = array(
-                    'build'       => $build,
-                    'dependency'  => $build->getFrom(),
-                );
+                $buildFiles[$imageName] = $build;
             }
         }
 
         return $buildFiles;
     }
 
-    protected function sortDependencies($buildFiles)
+    /**
+     * Filters the build files that are not based on external docker images.
+     * If the $external flag is specified, the filter is inverted and only
+     * those build files are returned that are based on an external image
+     * but not on an internal one.
+     *
+     * @param array $buildFiles
+     * @param bool $externalFlag
+     * @return array
+     */
+    protected function filterBuildFiles(array $buildFiles, $externalFlag = false)
     {
-        uksort($buildFiles, function ($imageKey1, $imageKey2) use ($buildFiles) {
-            if ($imageKey1 === $buildFiles[$imageKey2]['build']->getFrom()) {
-                return true;
-            }
+        // all image keys of internal images
+        $imageKeys = array_keys($buildFiles);
 
-            return false;
+        $external = array();
+        $internal = array();
+
+        foreach ($buildFiles as $imageKey => $buildFile) {
+            $dependency = $buildFile->getFrom();
+
+            // remove the tag
+            $dependency = preg_replace('/:[^:]*$/', '', $dependency);
+
+            if (in_array($dependency, $imageKeys)) {
+                $internal[$imageKey] = $buildFile;
+            } else {
+                $external[$imageKey] = $buildFile;
+            }
+        }
+
+        if ($externalFlag) {
+            return $external;
+        } else {
+            return $internal;
+        }
+    }
+
+    /**
+     * Sort the build files according their dependency tree.
+     *
+     * @param $buildFiles
+     * @return array
+     */
+    protected function sortBuildFiles($buildFiles)
+    {
+        $externalImages = $this->filterBuildFiles($buildFiles, true);
+        $internalImages = $this->filterBuildFiles($buildFiles, false);
+
+        uksort($internalImages, function ($imageKey1, $imageKey2) use ($buildFiles) {
+            if (in_array($imageKey2, $this->getDependencyTree($buildFiles, $buildFiles[$imageKey1]))) {
+                return 1;
+            }
+            return -1;
         });
 
-        return $buildFiles;
+        return array_merge($externalImages, $internalImages);
+    }
+
+    /**
+     * Build a dependency tree excluding the image keys from external
+     * resources. The result will be an array of image keys in the order
+     * how the docker images should be created.
+     *
+     * @param array $buildFiles
+     * @param BaseImage $buildFile
+     * @param array $path
+     * @return array
+     */
+    protected function getDependencyTree(
+        array $buildFiles,
+        BaseImage $buildFile,
+        array $path = array()
+    ) {
+        // keys of all images that we are going to build later
+        $imageKeys = array_keys($buildFiles);
+        $parentImageKey = $buildFile->getFrom();
+        $parentImageKey = preg_replace('/:[^:]*$/', '', $parentImageKey);
+
+        if (in_array($parentImageKey, $imageKeys)) {
+            // add the image key of the current build file to the dependency tree
+            $path[] = $parentImageKey;
+
+            // extend the path by the dependency tree of the parent image
+            $path = $this->getDependencyTree(
+                $buildFiles,
+                $buildFiles[$parentImageKey],
+                $path
+            );
+
+            return $path;
+        }
+
+        return $path;
     }
 
     protected function cleanup()
     {
         echo "Cleaning up ..." . PHP_EOL;
-        if (file_exists(DOCKER_FILE)) {
-            unlink(DOCKER_FILE);
+        if (file_exists($this->config['DOCKER_FILE'])) {
+            unlink($this->config['DOCKER_FILE']);
         }
-        system('rm -rf '. ASSETS_DIR .'/*');
+        system('rm -rf '. $this->config['ASSETS_DIR'] .'/*');
     }
 
     protected function outputHeader($headerMessage)
