@@ -241,6 +241,8 @@ EOT
             return;
         }
 
+        $internalBuildFiles = $this->filterBuildFiles($this->getBuildFiles());
+
         foreach ($this->getBuildFiles() as $imageName => $build) {
 
             /** @var BaseImage $build */
@@ -257,9 +259,10 @@ EOT
 
             file_put_contents($this->config['DOCKER_FILE'], $build->toDockerFile());
 
-            chdir(BUILD_DIR);
+            chdir($this->config['BUILD_DIR']);
 
-            system("docker build --no-cache=true -t $imageName .");
+            $noCache = in_array($build, $internalBuildFiles);
+            system("docker build --no-cache=$noCache -t $imageName .");
 
             $tarFileName = str_replace('/', '_', $imageName);
             system("docker save -o $tarFileName.tar $imageName");
