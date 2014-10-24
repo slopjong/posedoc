@@ -30,23 +30,6 @@ class DockerBuildCommand extends Command
 
     protected function configure()
     {
-        $config = array(
-            'ROOT_DIR'    => realpath("."), // in a phar __DIR__ starts with phar://
-            'BUILD_DIR'   => realpath(".") . '/.tmp',
-        );
-
-        $config = array_merge($config, array(
-            'IMAGES_DIR'  => $config['ROOT_DIR']  . '/images',
-            'AUTH_FILE'   => $config['BUILD_DIR'] . '/auth.json',
-            'PROJECT_DIR' => $config['BUILD_DIR'] . '/project',
-            'ASSETS_DIR'  => $config['BUILD_DIR'] . '/assets',
-            'CACHE_DIR'   => $config['BUILD_DIR'] . '/cache',
-            'DOCKER_FILE' => $config['BUILD_DIR'] . '/Dockerfile',
-            'POSIGNORE'   => $config['ROOT_DIR']  . '/.posignore',
-        ));
-
-        $this->setConfig($config);
-
         $this
             ->setName('docker-build')
             ->setDescription('Build docker containers.')
@@ -77,13 +60,45 @@ EOT
         $this->config = $config;
     }
 
-    protected  function getConfig()
+    // This was introduced when we found out that we have to respect
+    // composer's working directory option. That's why you might find
+    // the get/set/initConfig methods a mess
+    protected function initConfig($workingDir = '.')
+    {
+        $config = array(
+            'ROOT_DIR'    => realpath($workingDir), // in a phar __DIR__ starts with phar://
+            'BUILD_DIR'   => realpath($workingDir) . '/.tmp',
+        );
+
+        $config = array_merge($config, array(
+            'IMAGES_DIR'    => $config['ROOT_DIR']  . '/images',
+            'AUTH_FILE'     => $config['BUILD_DIR'] . '/auth.json',
+            'PROJECT_DIR'   => $config['BUILD_DIR'] . '/project',
+            'ASSETS_DIR'    => $config['BUILD_DIR'] . '/assets',
+            'CACHE_DIR'     => $config['BUILD_DIR'] . '/cache',
+            'DOCKER_FILE'   => $config['BUILD_DIR'] . '/Dockerfile',
+            'POSIGNORE'     => $config['ROOT_DIR']  . '/.posignore',
+            'COMPOSER_FILE' => str_replace('phar://', '', dirname(dirname(dirname(__DIR__)))),
+        ));
+
+        return $config;
+    }
+
+    protected function getConfig()
     {
         return $this->config;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $workingDir = $input->getOption('working-dir');
+        $this->setConfig($this->initConfig($workingDir));
+
+        copy(
+            $this->config['COMPOSER_FILE'],
+            $this->config['BUILD_DIR'].'/composer.phar'
+        );
+
         $buildImage = $input->getArgument('image');
         $dryRun = $input->getOption('dry-run');
 
