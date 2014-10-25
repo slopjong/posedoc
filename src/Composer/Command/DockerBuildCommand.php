@@ -3,8 +3,10 @@
 namespace Composer\Command;
 
 
+use Composer\Composer;
 use Composer\Config;
 use Composer\Config\JsonConfigSource;
+use Composer\Factory;
 use Composer\Installer;
 use Composer\Json\JsonFile;
 use Composer\Util\Filesystem;
@@ -42,10 +44,17 @@ class DockerBuildCommand extends Command
                 ),
                 new InputOption(
                     'dry-run',
-                    '',
-                    InputOption::VALUE_REQUIRED | InputOption::VALUE_REQUIRED,
+                    '', // option shortcut
+                    InputOption::VALUE_REQUIRED,
                     'Process the images list but don\'t build them',
-                    false
+                    false // default value
+                ),
+                new InputOption(
+                    'debug',
+                    '',  // option shortcut
+                    InputOption::VALUE_REQUIRED,
+                    'Print additional debugging information',
+                    false // default value
                 ),
             ))
             ->setHelp(<<<EOT
@@ -63,7 +72,7 @@ EOT
     // This was introduced when we found out that we have to respect
     // composer's working directory option. That's why you might find
     // the get/set/initConfig methods a mess
-    protected function initConfig($workingDir = '.')
+    protected function initConfig($debugMode, $workingDir = '.')
     {
         $config = array(
             'ROOT_DIR'    => realpath($workingDir), // in a phar __DIR__ starts with phar://
@@ -71,6 +80,7 @@ EOT
         );
 
         $config = array_merge($config, array(
+            'DEBUG'         => $debugMode,
             'IMAGES_DIR'    => $config['ROOT_DIR']  . '/images',
             'AUTH_FILE'     => $config['BUILD_DIR'] . '/auth.json',
             'PROJECT_DIR'   => $config['BUILD_DIR'] . '/project',
@@ -92,7 +102,8 @@ EOT
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $workingDir = $input->getOption('working-dir');
-        $this->setConfig($this->initConfig($workingDir));
+        $debugMode = $input->getOption('debug');
+        $this->setConfig($this->initConfig($debugMode, $workingDir));
 
         copy(
             $this->config['COMPOSER_FILE'],
@@ -141,6 +152,8 @@ EOT
         $this->buildFiles = $this->loadBuildFiles();
         $this->buildFiles = $this->sortBuildFiles($this->buildFiles);
 
+        $this->initOAuth();
+
         $this->checkoutProjects($dryRun);
         $this->build($buildImage, $dryRun);
         $this->cleanup();
@@ -148,10 +161,28 @@ EOT
 
     protected function initOAuth()
     {
+        // If the file exists we assume it contains a working token.
+        // If the user revoked the token it's his responsibility to
+        // delete the old auth file.
+        if (file_exists($this->getConfig()['AUTH_FILE'])) {
+            return;
+        }
+
+        // we need to create composer.json temporarily to get a non-null
+        // object from getComposer(), delete it after getting the token
+        // if the file didn't exist before
+        $composerJsonExisted = true;
+        if (! file_exists('composer.json')) {
+            file_put_contents('composer.json', '{}');
+            $composerJsonExisted = false;
+        }
+
         $fs = new Filesystem();
 
         $requireComposerJsonFile = false;
-        $disablePlugins = true;
+        $disablePlugins = false;
+
+        // $composer will be null if there's no composer.json
         $composer = $this->getComposer(
             $requireComposerJsonFile,
             $disablePlugins
@@ -174,6 +205,10 @@ EOT
 
         $github = new GitHub($io, $config);
         $github->authorizeOAuthInteractively('github.com');
+
+        if (! $composerJsonExisted) {
+            unlink('composer.json');
+        }
     }
 
     /**
@@ -261,7 +296,8 @@ EOT
         foreach ($this->getBuildFiles() as $imageName => $build) {
 
             /** @var BaseImage $build */
-            $build = $build;
+            $build = $this->addComposerInstallCommand($build);
+            $build = $this->setDefaultGitProtocol($build);
 
             if ($dryRun) {
                 $this->outputHeader('BUILDING '. $imageName .' (dry mode)');
@@ -276,8 +312,8 @@ EOT
 
             chdir($this->config['BUILD_DIR']);
 
-            $noCache = in_array($build, $internalBuildFiles);
-            system("docker build --no-cache=$noCache -t $imageName .");
+//            $noCache = in_array($build, $internalBuildFiles);
+            system("docker build --no-cache=true -t $imageName .");
 
             $tarFileName = str_replace('/', '_', $imageName);
             system("docker save -o $tarFileName.tar $imageName");
@@ -285,6 +321,68 @@ EOT
 
             chdir($this->config['ROOT_DIR']);
         }
+    }
+
+    protected function setDefaultGitProtocol($build, $protocol = 'https')
+    {
+        $build->run(array('git', 'config', '--global',
+            'url.https://github.com/.insteadOf', 'git://github.com/'));
+        return $build;
+    }
+
+    protected function addComposerInstallCommand(BaseImage $build)
+    {
+        $directories = $build->getComposerInstallDirs();
+
+        if (empty($directories)) {
+            return $build;
+        }
+
+        // copy the github oauth token to the image to allow more than
+        // 60 requests per hour, it will be removed later
+        $class = new \ReflectionClass($build);
+        $method = $class->getMethod('add');
+        $method->setAccessible(true);
+        $method->invokeArgs($build, array(
+            'auth.json',
+            '/root/.composer/auth.json',
+        ));
+
+        // install composer
+        $class = new \ReflectionClass($build);
+        $method = $class->getMethod('add');
+        $method->setAccessible(true);
+        $method->invokeArgs($build, array(
+            'composer.phar',
+            '/usr/share/composer/composer.phar',
+        ));
+
+        // install the composer dependencies
+        foreach ($directories as $directory) {
+            $composerCommand = array(
+                'php',
+                '/usr/share/composer/composer.phar',
+                "--working-dir=$directory",
+            );
+
+            // advise composer to print debugging messages in debug mode
+            if ($this->getConfig()['DEBUG']) {
+                $composerCommand[] = '-vvv';
+            }
+
+            $composerCommand[] = 'install';
+
+            $build->run($composerCommand);
+        }
+
+        $build->run(array(
+            'rm',
+            '-rf',
+            '/usr/share/composer/composer.phar',
+            '/root/.composer',
+        ));
+
+        return $build;
     }
 
     protected function loadBuildFiles()

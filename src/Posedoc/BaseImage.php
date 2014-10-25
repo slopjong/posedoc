@@ -19,6 +19,10 @@ class BaseImage implements BaseImageInterface, DockerFileInterface, WebProjectIn
 
     protected $directives_order = array();
 
+//    protected $composerPharInstalled = false;
+
+    protected $composerInstallDirs = array();
+
     /**
      * @param $from
      * @param string $tag
@@ -128,6 +132,32 @@ class BaseImage implements BaseImageInterface, DockerFileInterface, WebProjectIn
     {
         $this->project[] = $gitRepository;
         return $this;
+    }
+
+    /**
+     * @param $directory
+     * @return $this
+     */
+    public function installComposerDependenciesIn($directory)
+    {
+        $this->composerInstallDirs[] = $directory;
+        return $this;
+    }
+
+    public function getComposerInstallDirs()
+    {
+        return $this->composerInstallDirs;
+    }
+
+    /**
+     * This is intended to be called by DockerBuildCommand to add the
+     * composer.phar to the Dockerfile. We use the reflection to access
+     * this protected method.
+     */
+    protected function add($source, $destination)
+    {
+        $this->add[] = $source .' '. $destination;
+        $this->_order('add');
     }
 
     /**
