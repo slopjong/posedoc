@@ -313,7 +313,7 @@ EOT
             chdir($this->config['BUILD_DIR']);
 
 //            $noCache = in_array($build, $internalBuildFiles);
-            system("docker build --no-cache=true -t $imageName .");
+            system("docker build --force-rm --rm --no-cache=true -t $imageName .");
 
             $tarFileName = str_replace('/', '_', $imageName);
             system("docker save -o $tarFileName.tar $imageName");
@@ -330,9 +330,37 @@ EOT
         return $build;
     }
 
+    // @todo addComposerInstallCommand is doing too much already
+    //       it handles the git config and some removals
     protected function addComposerInstallCommand(BaseImage $build)
     {
         $directories = $build->getComposerInstallDirs();
+
+        // for some reason the auth.json is read by composer but
+        // it cannot clone repos always
+        $authData = json_decode(
+            file_get_contents(
+                $this->getConfig()['AUTH_FILE']
+            ),
+            true
+        );
+
+        $token = @$authData['config']['github-oauth']['github.com'];
+
+        // @todo: remove the token after the image is built
+        if ($token) {
+            $build->run(array(
+                'git',
+                'config',
+                '--global',
+                'github.accesstoken',
+                $token,
+            ));
+        } else {
+            if ($this->getConfig()['DEBUG']) {
+                echo "No token found." . PHP_EOL;
+            }
+        }
 
         if (empty($directories)) {
             return $build;
@@ -362,6 +390,8 @@ EOT
             $composerCommand = array(
                 'php',
                 '/usr/share/composer/composer.phar',
+                '--no-interaction',
+                '--no-dev',
                 "--working-dir=$directory",
             );
 
@@ -380,6 +410,7 @@ EOT
             '-rf',
             '/usr/share/composer/composer.phar',
             '/root/.composer',
+            '/root/.gitconfig'
         ));
 
         return $build;
